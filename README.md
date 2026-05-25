@@ -19,7 +19,14 @@ Required environment:
 | `APP_NOTIFICATION_TOKEN` | Secret sent by the Flutter app as `X-Notification-Token` |
 | `ONESIGNAL_APP_ID` | OneSignal app id |
 | `ONESIGNAL_REST_API_KEY` | OneSignal REST API key |
-| `FCM_SERVER_KEY` | Firebase Cloud Messaging legacy server key |
+| `FIREBASE_PROJECT_ID` | Firebase project id for FCM HTTP v1 |
+| `FIREBASE_CLIENT_EMAIL` | Firebase service account client email |
+| `FIREBASE_PRIVATE_KEY` | Firebase service account private key, with `\n` line breaks |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | Optional alternative to the split Firebase fields |
+
+`FCM_SERVER_KEY` is the old Firebase legacy key and is not used by this service.
+On Render, either add `FIREBASE_SERVICE_ACCOUNT_JSON` as the full service account JSON
+or add the three split Firebase variables above.
 
 ## Routes
 

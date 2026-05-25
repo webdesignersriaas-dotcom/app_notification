@@ -1,8 +1,15 @@
 const {
   FCM_SERVER_KEY,
+  FIREBASE_CLIENT_EMAIL,
+  FIREBASE_PRIVATE_KEY,
+  FIREBASE_PROJECT_ID,
+  FIREBASE_SERVICE_ACCOUNT_JSON,
   ONESIGNAL_APP_ID,
   ONESIGNAL_REST_API_KEY,
 } = require("../config");
+const { GoogleAuth } = require("google-auth-library");
+
+const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
 
 function clean(value) {
   return value == null ? "" : String(value).trim();
@@ -26,15 +33,38 @@ async function sendOneSignalPush({ oneSignalUserId, oneSignalPushToken, title, b
     return { sent: false, skipped: "onesignal_not_configured" };
   }
 
-  const target = userId
-    ? {
+  const targets = [];
+  if (userId) {
+    targets.push({
+      name: "onesignal_id",
+      payload: {
         include_aliases: { onesignal_id: [userId] },
         target_channel: "push",
-      }
-    : {
+      },
+    });
+  }
+  if (subscriptionId) {
+    targets.push({
+      name: "subscription_id",
+      payload: {
         include_subscription_ids: [subscriptionId],
-      };
+      },
+    });
+  }
 
+  const attempts = [];
+  for (const target of targets) {
+    const result = await sendOneSignalTarget({ target, title, body, data });
+    attempts.push(result);
+    if (result.sent && result.detail?.recipients !== 0) {
+      return attempts.length === 1 ? result : { ...result, attempts };
+    }
+  }
+
+  return attempts.length ? { ...attempts[attempts.length - 1], attempts } : { sent: false, skipped: "missing_onesignal_target" };
+}
+
+async function sendOneSignalTarget({ target, title, body, data }) {
   const response = await fetch("https://api.onesignal.com/notifications", {
     method: "POST",
     headers: {
@@ -43,7 +73,7 @@ async function sendOneSignalPush({ oneSignalUserId, oneSignalPushToken, title, b
     },
     body: JSON.stringify({
       app_id: ONESIGNAL_APP_ID,
-      ...target,
+      ...target.payload,
       headings: { en: clean(title) || "Appointment Update" },
       contents: { en: clean(body) },
       priority: 10,
@@ -55,35 +85,91 @@ async function sendOneSignalPush({ oneSignalUserId, oneSignalPushToken, title, b
   });
 
   const detail = await parseResponse(response);
-  if (!response.ok) return { sent: false, provider: "onesignal", status: response.status, detail };
-  return { sent: true, provider: "onesignal", detail };
+  if (!response.ok) return { sent: false, provider: "onesignal", target: target.name, status: response.status, detail };
+  return { sent: true, provider: "onesignal", target: target.name, detail };
 }
 
 async function sendFirebasePush({ fcmToken, title, body, data }) {
   const token = clean(fcmToken);
   if (!token) return { sent: false, skipped: "missing_fcm_token" };
-  if (!FCM_SERVER_KEY) return { sent: false, skipped: "firebase_not_configured" };
 
-  const response = await fetch("https://fcm.googleapis.com/fcm/send", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `key=${FCM_SERVER_KEY}`,
-    },
-    body: JSON.stringify({
-      to: token,
-      priority: "high",
-      notification: {
-        title: clean(title) || "Appointment Update",
-        body: clean(body),
+  try {
+    const firebaseConfig = parseFirebaseConfig();
+    if (!firebaseConfig) {
+      return {
+        sent: false,
+        skipped: "firebase_v1_not_configured",
+        note: FCM_SERVER_KEY ? "FCM_SERVER_KEY is legacy and is not used by this service." : undefined,
+      };
+    }
+
+    const accessToken = await getFirebaseAccessToken(firebaseConfig.credentials);
+    const response = await fetch(`https://fcm.googleapis.com/v1/projects/${firebaseConfig.projectId}/messages:send`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
       },
-      data: stringData(data),
-    }),
-  });
+      body: JSON.stringify({
+        message: {
+          token,
+          notification: {
+            title: clean(title) || "Appointment Update",
+            body: clean(body),
+          },
+          data: stringData(data),
+          android: {
+            priority: "HIGH",
+            notification: {
+              channel_id: "appointments_channel",
+              notification_priority: "PRIORITY_HIGH",
+              sound: "default",
+              visibility: "PUBLIC",
+            },
+          },
+          apns: {
+            payload: {
+              aps: {
+                sound: "default",
+              },
+            },
+          },
+        },
+      }),
+    });
 
-  const detail = await parseResponse(response);
-  if (!response.ok) return { sent: false, provider: "firebase", status: response.status, detail };
-  return { sent: true, provider: "firebase", detail };
+    const detail = await parseResponse(response);
+    if (!response.ok) return { sent: false, provider: "firebase", status: response.status, detail };
+    return { sent: true, provider: "firebase", detail };
+  } catch (error) {
+    return { sent: false, provider: "firebase", status: "config_error", detail: { message: error.message } };
+  }
+}
+
+function parseFirebaseConfig() {
+  let credentials = null;
+  if (FIREBASE_SERVICE_ACCOUNT_JSON) {
+    credentials = JSON.parse(FIREBASE_SERVICE_ACCOUNT_JSON);
+  } else if (FIREBASE_CLIENT_EMAIL && FIREBASE_PRIVATE_KEY) {
+    credentials = {
+      client_email: FIREBASE_CLIENT_EMAIL,
+      private_key: FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+      project_id: FIREBASE_PROJECT_ID,
+    };
+  }
+
+  const projectId = clean(FIREBASE_PROJECT_ID || credentials?.project_id);
+  if (!credentials?.client_email || !credentials?.private_key || !projectId) return null;
+  return { credentials, projectId };
+}
+
+async function getFirebaseAccessToken(credentials) {
+  const auth = new GoogleAuth({ credentials, scopes: [FCM_SCOPE] });
+  const client = await auth.getClient();
+  const accessToken = await client.getAccessToken();
+  const token = typeof accessToken === "string" ? accessToken : accessToken?.token;
+  if (!token) throw new Error("Unable to create Firebase access token");
+  return token;
 }
 
 async function parseResponse(response) {
