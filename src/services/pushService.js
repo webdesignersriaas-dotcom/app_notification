@@ -16,12 +16,24 @@ function stringData(data = {}) {
   return out;
 }
 
-async function sendOneSignalPush({ oneSignalUserId, title, body, data }) {
+async function sendOneSignalPush({ oneSignalUserId, oneSignalPushToken, title, body, data }) {
   const userId = clean(oneSignalUserId);
-  if (!userId) return { sent: false, skipped: "missing_onesignal_user_id" };
+  const subscriptionId = clean(oneSignalPushToken);
+  if (!userId && !subscriptionId) {
+    return { sent: false, skipped: "missing_onesignal_target" };
+  }
   if (!ONESIGNAL_APP_ID || !ONESIGNAL_REST_API_KEY) {
     return { sent: false, skipped: "onesignal_not_configured" };
   }
+
+  const target = userId
+    ? {
+        include_aliases: { onesignal_id: [userId] },
+        target_channel: "push",
+      }
+    : {
+        include_subscription_ids: [subscriptionId],
+      };
 
   const response = await fetch("https://api.onesignal.com/notifications", {
     method: "POST",
@@ -31,8 +43,7 @@ async function sendOneSignalPush({ oneSignalUserId, title, body, data }) {
     },
     body: JSON.stringify({
       app_id: ONESIGNAL_APP_ID,
-      include_aliases: { onesignal_id: [userId] },
-      target_channel: "push",
+      ...target,
       headings: { en: clean(title) || "Appointment Update" },
       contents: { en: clean(body) },
       data: data || {},
@@ -120,6 +131,7 @@ async function sendAppointmentPush(input) {
   const [oneSignal, firebase] = await Promise.all([
     sendOneSignalPush({
       oneSignalUserId: input.oneSignalUserId || input.onesignal_user_id || input.player_id,
+      oneSignalPushToken: input.oneSignalPushToken || input.one_signal_push_token,
       title,
       body,
       data,

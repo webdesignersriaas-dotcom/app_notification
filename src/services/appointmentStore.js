@@ -25,12 +25,9 @@ function clean(value) {
 }
 
 async function upsertAppointment(input) {
-  const bookingId = clean(input.bookingId || input.booking_id);
-  if (!bookingId) {
-    const err = new Error("bookingId is required");
-    err.status = 400;
-    throw err;
-  }
+  const bookingId =
+    clean(input.bookingId || input.booking_id) ||
+    `client-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   const items = await readAppointments();
   const existingIndex = items.findIndex((item) => clean(item.bookingId) === bookingId);
@@ -43,6 +40,7 @@ async function upsertAppointment(input) {
     appointmentDate: clean(input.appointmentDate || input.appointment_date || previous.appointmentDate),
     appointmentTime: clean(input.appointmentTime || input.appointment_time || previous.appointmentTime),
     oneSignalUserId: clean(input.oneSignalUserId || input.onesignal_user_id || input.player_id || previous.oneSignalUserId),
+    oneSignalPushToken: clean(input.oneSignalPushToken || input.one_signal_push_token || previous.oneSignalPushToken),
     fcmToken: clean(input.fcmToken || input.fcm_token || previous.fcmToken),
     status: clean(input.status || previous.status || "Confirmed"),
     updatedAt: new Date().toISOString(),
