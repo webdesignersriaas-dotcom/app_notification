@@ -46,6 +46,10 @@ async function sendOneSignalPush({ oneSignalUserId, oneSignalPushToken, title, b
       ...target,
       headings: { en: clean(title) || "Appointment Update" },
       contents: { en: clean(body) },
+      priority: 10,
+      android_visibility: 1,
+      android_sound: "default",
+      ios_sound: "default",
       data: data || {},
     }),
   });
