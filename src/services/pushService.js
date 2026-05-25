@@ -34,20 +34,20 @@ async function sendOneSignalPush({ oneSignalUserId, oneSignalPushToken, title, b
   }
 
   const targets = [];
+  if (subscriptionId) {
+    targets.push({
+      name: "subscription_id",
+      payload: {
+        include_subscription_ids: [subscriptionId],
+      },
+    });
+  }
   if (userId) {
     targets.push({
       name: "onesignal_id",
       payload: {
         include_aliases: { onesignal_id: [userId] },
         target_channel: "push",
-      },
-    });
-  }
-  if (subscriptionId) {
-    targets.push({
-      name: "subscription_id",
-      payload: {
-        include_subscription_ids: [subscriptionId],
       },
     });
   }
