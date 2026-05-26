@@ -86,4 +86,50 @@ async function runAppointmentReminders(options = {}) {
   };
 }
 
-module.exports = { runAppointmentReminders };
+async function sendMissedReminderAfterReschedule(appointment, options = {}) {
+  const now = options.now ? new Date(options.now) : new Date();
+  const beforeMinutes = Number(options.reminderBeforeMinutes || REMINDER_BEFORE_MINUTES);
+  const status = clean(appointment.status).toLowerCase();
+  if (status === "cancelled" || status === "canceled" || status === "completed") {
+    return { sent: false, reason: "inactive_status" };
+  }
+  if (clean(appointment.reminderSentAt)) {
+    return { sent: false, reason: "already_sent" };
+  }
+
+  const scheduledAt = parseAppointmentDateTime(
+    appointment.appointmentDate,
+    appointment.appointmentTime,
+  );
+  if (!scheduledAt) return { sent: false, reason: "invalid_appointment_time" };
+  if (scheduledAt <= now) return { sent: false, reason: "appointment_not_upcoming" };
+
+  const reminderAt = new Date(scheduledAt.getTime() - beforeMinutes * 60 * 1000);
+  if (reminderAt > now) {
+    return {
+      sent: false,
+      reason: "reminder_not_due",
+      reminderAt: reminderAt.toISOString(),
+    };
+  }
+
+  const result = await sendAppointmentPush({
+    ...appointment,
+    event: "appointment_reminder",
+  });
+  if (result.sent) {
+    await markReminderSent(appointment.bookingId);
+  }
+
+  return {
+    sent: Boolean(result.sent),
+    reason: result.sent ? "missed_reminder_sent" : "push_not_sent",
+    reminderAt: reminderAt.toISOString(),
+    result,
+  };
+}
+
+module.exports = {
+  runAppointmentReminders,
+  sendMissedReminderAfterReschedule,
+};
