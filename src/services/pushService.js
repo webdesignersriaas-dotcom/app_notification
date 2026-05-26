@@ -264,7 +264,7 @@ function formatAppointmentDate(value) {
   }).format(date);
 }
 
-async function sendAppointmentPush(input) {
+function buildAppointmentPush(input) {
   const event = clean(input.event) || "appointment_update";
   const data = {
     type: "appointment",
@@ -277,6 +277,11 @@ async function sendAppointmentPush(input) {
   };
   const title = clean(input.title) || titleForEvent(event);
   const body = clean(input.body) || bodyForEvent({ ...data, event });
+  return { event, data, title, body };
+}
+
+async function sendAppointmentPush(input) {
+  const { event, data, title, body } = buildAppointmentPush(input);
 
   const [oneSignal, firebase] = await Promise.all([
     withTimeout(
@@ -311,6 +316,7 @@ async function sendAppointmentPush(input) {
 }
 
 module.exports = {
+  buildAppointmentPush,
   bodyForEvent,
   sendAppointmentPush,
   titleForEvent,
