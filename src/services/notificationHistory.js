@@ -27,8 +27,9 @@ async function writeNotifications(items) {
 async function saveNotification({ appointment, event, title, body, data, push }) {
   const items = await readNotifications();
   const bookingId = clean(data.bookingId || appointment.bookingId);
+  const appointmentTime = clean(data.appointmentTime);
   const id = bookingId
-    ? `appointment-${bookingId}-${event}`
+    ? `appointment-${bookingId}-${event}-${appointmentTime.replace(/[^a-zA-Z0-9]/g, "")}-${Date.now()}`
     : `appointment-${event}-${Date.now()}`;
   const existingIndex = items.findIndex((item) => clean(item.id) === id);
   const item = {
@@ -39,7 +40,7 @@ async function saveNotification({ appointment, event, title, body, data, push })
     event: clean(event),
     bookingId,
     appointmentDate: clean(data.appointmentDate),
-    appointmentTime: clean(data.appointmentTime),
+    appointmentTime,
     doctorName: clean(data.doctorName),
     oneSignalUserId: clean(appointment.oneSignalUserId),
     oneSignalPushToken: clean(appointment.oneSignalPushToken),
