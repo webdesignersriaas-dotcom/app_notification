@@ -1,4 +1,5 @@
 const {
+  APPOINTMENT_TIMEZONE_OFFSET_MINUTES,
   REMINDER_BEFORE_MINUTES,
   REMINDER_LOOKAHEAD_MINUTES,
 } = require("../config");
@@ -39,7 +40,10 @@ function parseAppointmentDateTime(dateValue, timeValue) {
   const ampm = clean(timeMatch[3]).toUpperCase();
   if (ampm === "PM" && hour < 12) hour += 12;
   if (ampm === "AM" && hour === 12) hour = 0;
-  return new Date(year, month - 1, day, hour, minute, 0, 0);
+  return new Date(
+    Date.UTC(year, month - 1, day, hour, minute, 0, 0) -
+      APPOINTMENT_TIMEZONE_OFFSET_MINUTES * 60 * 1000,
+  );
 }
 
 async function runAppointmentReminders(options = {}) {
@@ -74,7 +78,11 @@ async function runAppointmentReminders(options = {}) {
       sent += 1;
       await markReminderSent(appointment.bookingId);
     }
-    results.push({ bookingId: appointment.bookingId, result });
+    results.push({
+      bookingId: appointment.bookingId,
+      appointmentAt: scheduledAt.toISOString(),
+      result,
+    });
   }
 
   return {
@@ -107,6 +115,7 @@ async function sendMissedReminderAfterReschedule(appointment, options = {}) {
   const reminderAt = new Date(scheduledAt.getTime() - beforeMinutes * 60 * 1000);
   if (reminderAt > now) {
     return {
+      appointmentAt: scheduledAt.toISOString(),
       sent: false,
       reason: "reminder_not_due",
       reminderAt: reminderAt.toISOString(),
@@ -122,6 +131,7 @@ async function sendMissedReminderAfterReschedule(appointment, options = {}) {
   }
 
   return {
+    appointmentAt: scheduledAt.toISOString(),
     sent: Boolean(result.sent),
     reason: result.sent ? "missed_reminder_sent" : "push_not_sent",
     reminderAt: reminderAt.toISOString(),
