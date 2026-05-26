@@ -273,6 +273,13 @@ function buildAppointmentPush(input) {
     appointmentDate: clean(input.appointmentDate || input.appointment_date),
     appointmentTime: clean(input.appointmentTime || input.appointment_time),
     doctorName: clean(input.doctorName || input.doctor_name),
+    patientName: clean(input.patientName || input.patient_name),
+    patientEmail: clean(input.patientEmail || input.patient_email || input.email),
+    patientPhone: clean(input.patientPhone || input.patient_phone || input.phone),
+    appointmentType: clean(input.appointmentType || input.appointment_type),
+    appointmentFor: clean(input.appointmentFor || input.appointment_for),
+    pageUrl: clean(input.pageUrl || input.page_url),
+    diseaseName: clean(input.diseaseName || input.disease_name),
     screen: "appointment_details",
   };
   const title = clean(input.title) || titleForEvent(event);
