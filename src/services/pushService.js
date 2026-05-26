@@ -237,7 +237,7 @@ function titleForEvent(event) {
 
 function bodyForEvent({ event, appointmentDate, appointmentTime, doctorName }) {
   const doctor = clean(doctorName) || "Doctor";
-  const date = clean(appointmentDate);
+  const date = formatAppointmentDate(appointmentDate);
   const time = clean(appointmentTime);
   if (event === "booking_confirmed") {
     return `Your appointment with ${doctor} is confirmed for ${date} at ${time}.`;
@@ -249,6 +249,19 @@ function bodyForEvent({ event, appointmentDate, appointmentTime, doctorName }) {
     return `Reminder: your appointment with ${doctor} is at ${time}.`;
   }
   return `Your appointment with ${doctor} is scheduled for ${date} at ${time}.`;
+}
+
+function formatAppointmentDate(value) {
+  const raw = clean(value);
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return raw;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
 }
 
 async function sendAppointmentPush(input) {
