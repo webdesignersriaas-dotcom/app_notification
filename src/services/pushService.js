@@ -10,6 +10,7 @@ const {
 const { GoogleAuth } = require("google-auth-library");
 
 const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
+const PUSH_PROVIDER_TIMEOUT_MS = 15000;
 
 function clean(value) {
   return value == null ? "" : String(value).trim();
@@ -64,25 +65,56 @@ async function sendOneSignalPush({ oneSignalUserId, oneSignalPushToken, title, b
   return attempts.length ? { ...attempts[attempts.length - 1], attempts } : { sent: false, skipped: "missing_onesignal_target" };
 }
 
-async function sendOneSignalTarget({ target, title, body, data }) {
-  const response = await fetch("https://api.onesignal.com/notifications", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Key ${ONESIGNAL_REST_API_KEY}`,
-    },
-    body: JSON.stringify({
-      app_id: ONESIGNAL_APP_ID,
-      ...target.payload,
-      headings: { en: clean(title) || "Appointment Update" },
-      contents: { en: clean(body) },
-      priority: 10,
-      android_visibility: 1,
-      android_sound: "default",
-      ios_sound: "default",
-      data: data || {},
-    }),
+async function withTimeout(promise, timeoutMs, label) {
+  let timeout;
+  const guardedPromise = Promise.resolve(promise).catch((error) => ({
+    sent: false,
+    provider: label,
+    status: "request_error",
+    detail: { message: error.message },
+  }));
+  const timeoutPromise = new Promise((resolve) => {
+    timeout = setTimeout(() => {
+      resolve({
+        sent: false,
+        provider: label,
+        status: "timeout",
+        detail: { message: `Timed out after ${timeoutMs}ms` },
+      });
+    }, timeoutMs);
   });
+
+  try {
+    return await Promise.race([guardedPromise, timeoutPromise]);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function sendOneSignalTarget({ target, title, body, data }) {
+  let response;
+  try {
+    response = await fetchWithTimeout("https://api.onesignal.com/notifications", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Key ${ONESIGNAL_REST_API_KEY}`,
+      },
+      body: JSON.stringify({
+        app_id: ONESIGNAL_APP_ID,
+        ...target.payload,
+        headings: { en: clean(title) || "Appointment Update" },
+        contents: { en: clean(body) },
+        priority: 10,
+        android_visibility: 1,
+        android_sound: "default",
+        ios_sound: "default",
+        data: data || {},
+      }),
+    });
+  } catch (error) {
+    return { sent: false, provider: "onesignal", target: target.name, status: "request_error", detail: { message: error.message } };
+  }
 
   const detail = await parseResponse(response);
   if (!response.ok) return { sent: false, provider: "onesignal", target: target.name, status: response.status, detail };
@@ -104,7 +136,7 @@ async function sendFirebasePush({ fcmToken, title, body, data }) {
     }
 
     const accessToken = await getFirebaseAccessToken(firebaseConfig.credentials);
-    const response = await fetch(`https://fcm.googleapis.com/v1/projects/${firebaseConfig.projectId}/messages:send`, {
+    const response = await fetchWithTimeout(`https://fcm.googleapis.com/v1/projects/${firebaseConfig.projectId}/messages:send`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -143,6 +175,21 @@ async function sendFirebasePush({ fcmToken, title, body, data }) {
     return { sent: true, provider: "firebase", detail };
   } catch (error) {
     return { sent: false, provider: "firebase", status: "config_error", detail: { message: error.message } };
+  }
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = PUSH_PROVIDER_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error(`Request timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -219,19 +266,27 @@ async function sendAppointmentPush(input) {
   const body = clean(input.body) || bodyForEvent({ ...data, event });
 
   const [oneSignal, firebase] = await Promise.all([
-    sendOneSignalPush({
-      oneSignalUserId: input.oneSignalUserId || input.onesignal_user_id || input.player_id,
-      oneSignalPushToken: input.oneSignalPushToken || input.one_signal_push_token,
-      title,
-      body,
-      data,
-    }),
-    sendFirebasePush({
-      fcmToken: input.fcmToken || input.fcm_token,
-      title,
-      body,
-      data,
-    }),
+    withTimeout(
+      sendOneSignalPush({
+        oneSignalUserId: input.oneSignalUserId || input.onesignal_user_id || input.player_id,
+        oneSignalPushToken: input.oneSignalPushToken || input.one_signal_push_token,
+        title,
+        body,
+        data,
+      }),
+      PUSH_PROVIDER_TIMEOUT_MS,
+      "onesignal",
+    ),
+    withTimeout(
+      sendFirebasePush({
+        fcmToken: input.fcmToken || input.fcm_token,
+        title,
+        body,
+        data,
+      }),
+      PUSH_PROVIDER_TIMEOUT_MS,
+      "firebase",
+    ),
   ]);
 
   return {

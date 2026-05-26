@@ -21,9 +21,17 @@ router.post("/appointments/upsert", async (req, res) => {
     let push = null;
     if (body.sendPush !== false && body.event) {
       push = await sendAppointmentPush({ ...appointment, event: body.event });
+      console.log("[appointment-notifications] push result", JSON.stringify({
+        event: body.event,
+        bookingId: appointment.bookingId,
+        sent: push && push.sent,
+        firebase: push && push.firebase,
+        oneSignal: push && push.oneSignal,
+      }));
     }
     return res.json({ success: true, data: { appointment, push } });
   } catch (e) {
+    console.error("[appointment-notifications] upsert failed", e);
     return res.status(e.status || 500).json({ success: false, message: e.message });
   }
 });
